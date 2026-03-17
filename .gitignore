@@ -1,0 +1,6 @@
+# .gitignoreの中身
+venv/
+__pycache__/
+instance/
+*.db
+.env

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>シフト管理アプリ</title>
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+</head>
+<body>
+    <h1>休み希望を提出</h1>
+    <form action="/submit" method="POST">
+        <label for="name">名前:</label>
+        <input type="text" name="name" required>
+        <br>
+        <label for="month">月:</label>
+        <input type="number" name="month" min="1" max="12" required>
+        <br>
+        <label for="days">希望日を選択:</label>
+        <input type="text" id="calendar" name="days" required>
+        <br>
+        <button type="submit">送信</button>
+    </form>
+
+    <script>
+        $(function() {
+            $("#calendar").datepicker({
+                dateFormat: "yy-mm-dd",
+                multipleDates: true,
+                multipleDatesSeparator: ","
+            });
+        });
+    </script>
+</body>
+</html>
+
+
+

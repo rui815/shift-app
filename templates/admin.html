@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>管理者ページ</title>
+</head>
+<body>
+    <h1>希望一覧</h1>
+    <ul>
+        {% for request in user_requests %}
+            <li>{{ request.name }}: {{ request.days }}</li>
+        {% endfor %}
+    </ul>
+    <a href="/logout">ログアウト</a>
+</body>
+</html>
+
