@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
@@ -75,6 +75,10 @@ def get_shifts(month_str):
             "date": shift.date.strftime('%Y-%m-%d')
         })
     return jsonify(result), 200
+
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 if __name__ == '__main__':
     app.run(debug=True)

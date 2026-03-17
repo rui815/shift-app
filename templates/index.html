@@ -1,37 +1,231 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-    <title>シフト管理アプリ</title>
-    <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>希望休提出システム</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; color: #333; }
+        
+        /* カレンダー全体の幅 */
+        .calendar-container {
+            max-width: 350px;
+            margin-top: 20px;
+            margin-bottom: 20px;
+        }
+
+        /* カレンダーのタイトル（年月） */
+        .calendar-title {
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        /* 曜日と日付のグリッド設定（7列） */
+        .calendar-grid, .weekday-header {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 5px;
+        }
+
+        /* 曜日のスタイル */
+        .weekday-header div {
+            text-align: center;
+            font-weight: bold;
+            font-size: 14px;
+            padding-bottom: 5px;
+        }
+        .sun { color: #e74c3c; } /* 日曜日は赤 */
+        .sat { color: #3498db; } /* 土曜日は青 */
+
+        /* 日付マスのスタイル */
+        .day-cell {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px 0;
+            text-align: center;
+            cursor: pointer;
+            background-color: #f9f9f9;
+            user-select: none;
+            font-size: 16px;
+            transition: 0.2s; /* 色が変わるときのフワッと感 */
+        }
+        
+        /* 空白マス（1日が始まる前のスペース） */
+        .empty-cell {
+            border: none;
+            background-color: transparent;
+        }
+
+        /* 選ばれた時のデザイン */
+        .day-cell.selected {
+            background-color: #ff6b6b; /* 休みの赤色 */
+            color: white;
+            font-weight: bold;
+            border-color: #ff6b6b;
+        }
+
+        .submit-btn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            max-width: 350px;
+        }
+    </style>
 </head>
 <body>
-    <h1>休み希望を提出</h1>
-    <form action="/submit" method="POST">
-        <label for="name">名前:</label>
-        <input type="text" name="name" required>
-        <br>
-        <label for="month">月:</label>
-        <input type="number" name="month" min="1" max="12" required>
-        <br>
-        <label for="days">希望日を選択:</label>
-        <input type="text" id="calendar" name="days" required>
-        <br>
-        <button type="submit">送信</button>
-    </form>
+    <h1>希望休 提出フォーム</h1>
+
+    <div style="margin-bottom: 20px;">
+        <label for="staff-select" style="font-weight: bold; display: block; margin-bottom: 5px;">あなたの名前:</label>
+        <select id="staff-select" style="padding: 10px; font-size: 16px; width: 100%; max-width: 350px; border-radius: 5px; border: 1px solid #ccc;">
+            <option value="">-- 選択してください --</option>
+        </select>
+    </div>
+
+    <div class="calendar-container">
+        <div id="calendar-title" class="calendar-title"></div>
+        
+        <div class="weekday-header">
+            <div class="sun">日</div>
+            <div>月</div>
+            <div>火</div>
+            <div>水</div>
+            <div>木</div>
+            <div>金</div>
+            <div class="sat">土</div>
+        </div>
+
+        <div id="calendar-grid" class="calendar-grid">
+            </div>
+    </div>
+
+    <button class="submit-btn" onclick="submitShifts()">提出する</button>
 
     <script>
-        $(function() {
-            $("#calendar").datepicker({
-                dateFormat: "yy-mm-dd",
-                multipleDates: true,
-                multipleDatesSeparator: ","
+        let selectedDates = []; // 選んだ日付を保存するリスト
+        
+        // 画面が開いたときの処理
+        window.onload = async function() {
+            // 1. APIからスタッフ一覧を取得してドロップダウンに入れる
+            const response = await fetch('/api/staff');
+            const staffList = await response.json();
+            const select = document.getElementById('staff-select');
+            staffList.forEach(staff => {
+                const option = document.createElement('option');
+                option.value = staff.id;
+                option.textContent = staff.name;
+                select.appendChild(option);
             });
-        });
+
+            // 2. カレンダーを生成する
+            generateCalendar();
+        };
+
+        // カレンダーを生成する関数
+        function generateCalendar() {
+            const calendarGrid = document.getElementById('calendar-grid');
+            const calendarTitle = document.getElementById('calendar-title');
+            
+            // 来月の年と月を計算
+            const today = new Date();
+            let targetYear = today.getFullYear();
+            let targetMonth = today.getMonth() + 2; // JavaScriptの月は0~11なので、来月は+2
+
+            // もし今が12月なら、来年は1月になるよう調整
+            if (targetMonth > 12) {
+                targetMonth = 1;
+                targetYear += 1;
+            }
+            
+            // タイトルに年月を表示
+            calendarTitle.textContent = `${targetYear}年 ${targetMonth}月`;
+
+            // 来月の1日が何曜日かを取得 (0:日曜, 1:月曜 ... 6:土曜)
+            // ※Dateの月指定は0~11なので、targetMonth - 1 にします
+            const firstDayOfWeek = new Date(targetYear, targetMonth - 1, 1).getDay();
+
+            // 来月が何日まであるかを取得
+            const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
+
+            // 1. 1日が始まるまでの「空白のマス」を作る
+            for (let i = 0; i < firstDayOfWeek; i++) {
+                const emptyDiv = document.createElement('div');
+                emptyDiv.className = 'empty-cell';
+                calendarGrid.appendChild(emptyDiv);
+            }
+
+            // 2. 日付ボタンを作る
+            for (let i = 1; i <= daysInMonth; i++) {
+                const dayDiv = document.createElement('div');
+                dayDiv.className = 'day-cell';
+                dayDiv.textContent = i;
+
+                // 土日の場合は色を変える（オプション）
+                const currentDayOfWeek = (firstDayOfWeek + i - 1) % 7;
+                if (currentDayOfWeek === 0) dayDiv.style.color = '#e74c3c'; // 日曜
+                if (currentDayOfWeek === 6) dayDiv.style.color = '#3498db'; // 土曜
+
+                // APIに送るための日付文字列を作る (例: "2024-06-05")
+                const monthStr = String(targetMonth).padStart(2, '0');
+                const dayStr = String(i).padStart(2, '0');
+                const dateString = `${targetYear}-${monthStr}-${dayStr}`;
+
+                // タップされた時の処理を設定
+                dayDiv.onclick = () => toggleDate(dayDiv, dateString);
+                
+                calendarGrid.appendChild(dayDiv);
+            }
+        }
+
+        // 日付がタップされた時の処理
+        function toggleDate(element, dateString) {
+            if (selectedDates.includes(dateString)) {
+                selectedDates = selectedDates.filter(d => d !== dateString);
+                element.classList.remove('selected');
+            } else {
+                selectedDates.push(dateString);
+                element.classList.add('selected');
+            }
+        }
+
+        // 提出ボタンが押された時の処理
+        async function submitShifts() {
+            const staffId = document.getElementById('staff-select').value;
+            
+            if (!staffId) {
+                alert('名前を選択してください');
+                return;
+            }
+            if (selectedDates.length === 0) {
+                alert('休み希望日を1日以上選択してください');
+                return;
+            }
+
+            const payload = {
+                staff_id: parseInt(staffId),
+                dates: selectedDates
+            };
+
+            const response = await fetch('/api/shifts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.ok) {
+                alert('シフトの提出が完了しました！');
+                window.location.reload();
+            } else {
+                alert('エラーが発生しました');
+            }
+        }
     </script>
 </body>
 </html>
-
-
-
