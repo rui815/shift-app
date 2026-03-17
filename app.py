@@ -1,86 +1,83 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
-from flask_bcrypt import Bcrypt  # パスワードのハッシュ化に使用
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from datetime import datetime
 
-# Flaskアプリケーションの初期化
 app = Flask(__name__)
+# データベースの設定
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///shifts.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'your_secret_key'  # セッション管理に必要
 db = SQLAlchemy(app)
-bcrypt = Bcrypt(app)
-login_manager = LoginManager(app)
-login_manager.login_view = 'login'
 
-# データベースモデル
-class UserRequest(db.Model):
+# --- データベースモデル ---
+
+class Staff(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(80), nullable=False)
-    month = db.Column(db.String(20), nullable=False)  # ここに値が渡される必要がある
-    days = db.Column(db.String(200), nullable=False)
+    name = db.Column(db.String(80), nullable=False, unique=True)
+    requests = db.relationship('ShiftRequest', backref='staff', lazy=True)
 
-class Admin(UserMixin, db.Model):  # 管理者モデル
+class ShiftRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password = db.Column(db.String(200), nullable=False)
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False) # 'YYYY-MM-DD' 形式
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-@login_manager.user_loader
-def load_user(user_id):
-    return Admin.query.get(int(user_id))
-
-# データベースの初期化（アプリケーションコンテキスト内で実行）
+# データベースの初期化
 with app.app_context():
     db.create_all()
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+# --- APIエンドポイント（フロントエンドと通信する窓口） ---
 
-@app.route('/submit', methods=['POST'])
-def submit_request():
-    # フォームデータを取得
-    name = request.form['name']
-    month = request.form['month']  # フォームから月を取得
-    days = request.form['days']  # 選択された日付を取得
-
-    # 新しい希望休をデータベースに保存
-    new_request = UserRequest(name=name, month=month , days=days)
-    db.session.add(new_request)
+# 1. スタッフを登録するAPI
+@app.route('/api/staff', methods=['POST'])
+def add_staff():
+    data = request.json
+    new_staff = Staff(name=data['name'])
+    db.session.add(new_staff)
     db.session.commit()
+    return jsonify({"message": f"{data['name']}さんを登録しました！"}), 201
 
-    return redirect(url_for('index'))
+# 2. スタッフ一覧を取得するAPI
+@app.route('/api/staff', methods=['GET'])
+def get_staff():
+    staff_list = Staff.query.all()
+    # JSONで返せる形（辞書のリスト）に変換
+    result = [{"id": s.id, "name": s.name} for s in staff_list]
+    return jsonify(result), 200
 
-@app.route('/admin')
-@login_required
-def admin():
-    # 管理者のみが希望休を閲覧可能
-    user_requests = UserRequest.query.all()
-    return render_template('admin.html', user_requests=user_requests)
+# 3. 希望休を提出するAPI
+@app.route('/api/shifts', methods=['POST'])
+def submit_shift():
+    data = request.json
+    staff_id = data['staff_id']
+    dates = data['dates'] # ["2024-05-01", "2024-05-05"] のようなリストを想定
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        admin = Admin.query.filter_by(username=username).first()
-        if admin and bcrypt.check_password_hash(admin.password, password):
-            login_user(admin)
-            return redirect(url_for('admin'))
-    return render_template('login.html')
+    for date_str in dates:
+        # 文字列を日付データに変換
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+        new_request = ShiftRequest(staff_id=staff_id, date=date_obj)
+        db.session.add(new_request)
+    
+    db.session.commit()
+    return jsonify({"message": "希望休を登録しました！"}), 201
 
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for('index'))
+# 4. 指定した月の希望休一覧を取得するAPI (例: /api/shifts/2024-05)
+@app.route('/api/shifts/<month_str>', methods=['GET'])
+def get_shifts(month_str):
+    # 月の最初と最後の日付範囲を作って検索する処理が必要ですが、
+    # 今回はシンプルに「指定した文字（例：2024-05）で始まる日付」を検索します
+    shifts = ShiftRequest.query.filter(ShiftRequest.date.like(f"{month_str}-%")).all()
+    
+    result = []
+    for shift in shifts:
+        result.append({
+            "id": shift.id,
+            "staff_name": shift.staff.name, # リレーションを使ってスタッフ名を取得
+            "date": shift.date.strftime('%Y-%m-%d')
+        })
+    return jsonify(result), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
-
-
-
-
 
 
 
