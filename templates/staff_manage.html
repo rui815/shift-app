@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>【店長用】スタッフ管理</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; background-color: #f4f7f6;}
+        .container { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .staff-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #ddd; background-color: #fff;}
+        .action-buttons { display: flex; gap: 10px; align-items: center; }
+        .move-btn { background-color: #f0f0f0; border: 1px solid #ccc; border-radius: 3px; padding: 5px 10px; cursor: pointer; font-weight: bold;}
+        .move-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .move-btn:hover:not(:disabled) { background-color: #e0e0e0; }
+        .delete-btn { background-color: #ff4d4d; color: white; border: none; padding: 6px 15px; cursor: pointer; border-radius: 5px;}
+        .delete-btn:hover { background-color: #e60000; }
+        .add-box { display: flex; gap: 10px; margin-bottom: 20px; align-items: center;}
+        input { padding: 10px; border: 1px solid #ccc; border-radius: 5px;}
+        .add-btn { padding: 10px 20px; background-color: #4CAF50; color: white; border: none; cursor: pointer; border-radius: 5px; font-weight: bold; white-space: nowrap;}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>スタッフ管理</h2>
+        
+        <div class="add-box">
+            <input type="text" id="staff-name" placeholder="名前 (例: 山田太郎)" style="flex-grow: 1;">
+            <input type="text" id="staff-password" placeholder="パスワード(例: 1234)" style="width: 150px;">
+            <button class="add-btn" onclick="addStaff()">追加する</button>
+        </div>
+        
+        <div id="staff-list">
+            </div>
+        <br>
+        <a href="/admin" style="text-decoration: none; color: #3498db; font-weight: bold;">← カレンダー画面に戻る</a>
+    </div>
+
+    <script>
+        let currentStaffList = [];
+
+        window.onload = loadStaff;
+
+        async function loadStaff() {
+            const res = await fetch('/api/staff');
+            currentStaffList = await res.json();
+            renderStaffList();
+        }
+
+        function renderStaffList() {
+            const listDiv = document.getElementById('staff-list');
+            listDiv.innerHTML = '';
+            
+            currentStaffList.forEach((staff, index) => {
+                const div = document.createElement('div');
+                div.className = 'staff-item';
+                div.innerHTML = `
+                    <div style="font-weight: bold; font-size: 16px;">
+                        ${index + 1}. ${staff.name} 
+                        <span style="font-size: 13px; color: #888; margin-left: 10px; font-weight: normal;">(PASS: ${staff.password})</span>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="move-btn" onclick="moveUp(${index})" ${index === 0 ? 'disabled' : ''}>↑</button>
+                        <button class="move-btn" onclick="moveDown(${index})" ${index === currentStaffList.length - 1 ? 'disabled' : ''}>↓</button>
+                        <button class="delete-btn" onclick="deleteStaff(${staff.id}, '${staff.name}')">削除</button>
+                    </div>
+                `;
+                listDiv.appendChild(div);
+            });
+        }
+
+        async function moveUp(index) {
+            if (index === 0) return;
+            const temp = currentStaffList[index - 1];
+            currentStaffList[index - 1] = currentStaffList[index];
+            currentStaffList[index] = temp;
+            renderStaffList();
+            await saveOrder();
+        }
+
+        async function moveDown(index) {
+            if (index === currentStaffList.length - 1) return;
+            const temp = currentStaffList[index + 1];
+            currentStaffList[index + 1] = currentStaffList[index];
+            currentStaffList[index] = temp;
+            renderStaffList();
+            await saveOrder();
+        }
+
+        async function saveOrder() {
+            const orderData = currentStaffList.map((staff, index) => ({
+                id: staff.id, display_order: index + 1
+            }));
+            await fetch('/api/staff/reorder', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(orderData)
+            });
+        }
+
+        async function addStaff() {
+            const name = document.getElementById('staff-name').value;
+            const password = document.getElementById('staff-password').value; // 追加
+            
+            if (!name || !password) {
+                alert("名前とパスワードの両方を入力してください。");
+                return;
+            }
+
+            await fetch('/api/staff', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name, password: password}) // パスワードも送る
+            });
+            document.getElementById('staff-name').value = '';
+            document.getElementById('staff-password').value = '';
+            loadStaff();
+        }
+
+        async function deleteStaff(id, name) {
+            if(!confirm(`${name}さんを本当に削除しますか？\n※関連するシフトデータも消えます`)) return;
+            await fetch(`/api/staff/${id}`, { method: 'DELETE' });
+            loadStaff();
+        }
+    </script>
+</body>
+</html>

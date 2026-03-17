@@ -7,8 +7,9 @@ def test_api():
 
     # 1. スタッフの登録テスト
     print("1. スタッフを登録します...")
-    res1 = requests.post(f"{BASE_URL}/staff", json={"name": "山田太郎"})
-    res2 = requests.post(f"{BASE_URL}/staff", json={"name": "佐藤花子"})
+    res1 = requests.post(f"{BASE_URL}/staff", json={"name": "安藤瑠"})
+    res2 = requests.post(f"{BASE_URL}/staff", json={"name": "永山翔太"})
+    res2 = requests.post(f"{BASE_URL}/staff", json={"name": "佐藤大翔"})
     print(res1.json())
     print(res2.json(), "\n")
 
