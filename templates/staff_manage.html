@@ -10,127 +10,132 @@
         h1 { font-size: 20px; text-align: center; margin-top: 0; border-bottom: 2px solid #ddd; padding-bottom: 10px;}
         
         .form-group { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; background: #f9f9f9; padding: 15px; border-radius: 8px;}
-        .form-group input { padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;}
+        .form-group input[type="text"] { padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;}
         
-        .btn { padding: 12px 15px; font-size: 16px; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; text-align: center; }
-        .btn-add { background-color: #4CAF50; color: white; margin-top: 5px;}
-        .btn-add:hover { background-color: #45a049; }
-        
-        .btn-back { background-color: #95a5a6; color: white; display: inline-block; text-decoration: none; margin-bottom: 15px; font-size: 14px; padding: 10px 15px;}
-        .btn-delete { background-color: #e74c3c; color: white; padding: 8px 15px; font-size: 14px;}
+        .btn { padding: 12px 15px; font-size: 16px; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; color: white; background-color: #4CAF50;}
+        .btn:hover { background-color: #45a049; }
+        .btn-back { background-color: #95a5a6; width: 100%; margin-top: 20px;}
         
         .staff-list { list-style: none; padding: 0; margin: 0; }
-        .staff-item { display: flex; justify-content: space-between; align-items: center; background: white; border: 1px solid #ddd; padding: 10px; margin-bottom: 8px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); gap: 10px;}
+        .staff-item { display: flex; align-items: center; justify-content: space-between; background: white; padding: 15px; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 8px; cursor: grab;}
+        .staff-item:active { cursor: grabbing; background-color: #f0f0f0;}
         
-        .sort-controls { display: flex; flex-direction: column; gap: 5px; }
-        .btn-sort { padding: 5px 12px; font-size: 14px; background-color: #ecf0f1; border: 1px solid #bdc3c7; border-radius: 4px; color: #2c3e50; cursor: pointer; font-weight: bold;}
-        .btn-sort:hover { background-color: #bdc3c7; }
+        .drag-handle { color: #aaa; margin-right: 15px; font-size: 20px; user-select: none;}
+        .staff-info { flex-grow: 1; display: flex; flex-direction: column; gap: 4px;}
+        .staff-name { font-weight: bold; font-size: 16px;}
+        .staff-pass { font-size: 13px; color: #777;}
         
-        .staff-info-container { display: flex; align-items: center; flex-grow: 1; gap: 15px; }
-        .staff-info { display: flex; flex-direction: column; gap: 5px; }
-        .staff-name { font-weight: bold; font-size: 16px; }
-        .staff-pass { font-size: 13px; color: #777; }
+        .btn-delete { background-color: #e74c3c; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; font-size: 12px;}
     </style>
 </head>
 <body>
-    <div class="container" style="margin-top: 15px;">
-        <a href="/admin" class="btn btn-back">← カレンダーに戻る</a>
+    <div class="container">
         <h1>⚙️ スタッフ管理</h1>
         
         <div class="form-group">
-            <h3 style="margin: 0; font-size: 16px;">新規スタッフ追加</h3>
-            <input type="text" id="new-name" placeholder="スタッフの名前">
-            <input type="number" id="new-pass" placeholder="従業員番号 (パスワード)">
-            <button class="btn btn-add" onclick="addStaff()">追加する</button>
+            <input type="text" id="new-name" placeholder="スタッフ名">
+            <input type="text" id="new-pass" placeholder="従業員番号 (ログイン用)">
+            <label style="font-size: 14px; display: flex; align-items: center; gap: 5px; font-weight: bold;">
+                <input type="checkbox" id="new-is-double" style="width: 20px; height: 20px;"> 
+                昼・夜シフト両方に入るスタッフ（チェックすると昼夜選択式のUIになります）
+            </label>
+            <button class="btn" onclick="addStaff()">＋ 新規スタッフを追加</button>
         </div>
 
-        <h3 style="font-size: 16px; margin-bottom: 5px;">登録済みスタッフ一覧</h3>
-        <p style="font-size: 12px; color: #555; margin-top: 0; margin-bottom: 15px; line-height: 1.4;">
-            ※「↑」「↓」ボタンで順番を入れ替えることができます。<br>
-            ※重複している名前があれば「削除」してください。
-        </p>
-        
+        <p style="font-size: 12px; color: #777; margin-bottom: 5px;">※ ≡ をドラッグして表示順を並び替えられます</p>
         <ul id="staff-list" class="staff-list">
             </ul>
+
+        <button class="btn btn-back" onclick="location.href='/admin'">カレンダーに戻る</button>
     </div>
 
     <script>
-        window.onload = loadStaff;
+        let dragSrcEl = null;
+
+        window.onload = function() {
+            if (sessionStorage.getItem('admin_logged_in') !== 'true') {
+                window.location.href = '/admin'; 
+                return;
+            }
+            loadStaff();
+        };
 
         async function loadStaff() {
             const res = await fetch('/api/staff');
             const staffList = await res.json();
-            const listEl = document.getElementById('staff-list');
-            listEl.innerHTML = '';
+            const ul = document.getElementById('staff-list');
+            ul.innerHTML = '';
 
-            staffList.forEach((staff, index) => {
-                const li = document.createElement('li');
-                li.className = 'staff-item';
-                li.dataset.id = staff.id;
-                
-                const infoContainer = document.createElement('div');
-                infoContainer.className = 'staff-info-container';
+            staffList.forEach(staff => {
+                const item = document.createElement('li');
+                item.className = 'staff-item';
+                item.draggable = true;
+                item.dataset.id = staff.id;
 
-                const sortDiv = document.createElement('div');
-                sortDiv.className = 'sort-controls';
-                sortDiv.innerHTML = `
-                    <button class="btn-sort" onclick="moveUp(this)" ${index === 0 ? 'disabled style="opacity:0.3;"' : ''}>↑</button>
-                    <button class="btn-sort" onclick="moveDown(this)" ${index === staffList.length - 1 ? 'disabled style="opacity:0.3;"' : ''}>↓</button>
+                // 昼夜対応スタッフには青いタグを表示
+                const doubleTag = staff.is_double_shift ? '<span style="font-size: 10px; background: #3498db; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 5px;">昼夜</span>' : '';
+
+                item.innerHTML = `
+                    <div class="drag-handle">☰</div>
+                    <div class="staff-info">
+                        <div class="staff-name">${staff.name} ${doubleTag}</div>
+                        <span class="staff-pass">従業員番号: ${staff.password}</span>
+                    </div>
+                    <button class="btn-delete" onclick="deleteStaff(${staff.id}, '${staff.name}')">削除</button>
                 `;
 
-                const infoDiv = document.createElement('div');
-                infoDiv.className = 'staff-info';
-                infoDiv.innerHTML = `<span class="staff-name">👤 ${staff.name}</span><span class="staff-pass">従業員番号: ${staff.password}</span>`;
-                
-                infoContainer.appendChild(sortDiv);
-                infoContainer.appendChild(infoDiv);
+                item.addEventListener('dragstart', handleDragStart);
+                item.addEventListener('dragover', handleDragOver);
+                item.addEventListener('drop', handleDrop);
+                item.addEventListener('dragend', handleDragEnd);
 
-                const delBtn = document.createElement('button');
-                delBtn.className = 'btn btn-delete';
-                delBtn.textContent = '削除';
-                delBtn.onclick = () => deleteStaff(staff.id, staff.name);
-
-                li.appendChild(infoContainer);
-                li.appendChild(delBtn);
-                listEl.appendChild(li);
+                ul.appendChild(item);
             });
         }
 
-        function moveUp(btn) {
-            const li = btn.closest('.staff-item');
-            if (li.previousElementSibling) {
-                li.parentNode.insertBefore(li, li.previousElementSibling);
-                saveOrder();
-            }
+        // --- ドラッグ＆ドロップ処理 ---
+        function handleDragStart(e) {
+            dragSrcEl = this;
+            e.dataTransfer.effectAllowed = 'move';
+            this.style.opacity = '0.4';
         }
 
-        function moveDown(btn) {
-            const li = btn.closest('.staff-item');
-            if (li.nextElementSibling) {
-                li.parentNode.insertBefore(li.nextElementSibling, li);
-                saveOrder();
-            }
+        function handleDragOver(e) {
+            if (e.preventDefault) e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            return false;
         }
 
-        async function saveOrder() {
-            const items = document.querySelectorAll('.staff-item');
-            
-            // 【修正部分】裏側の app.py が読み取れる形に直しました！
-            const orderData = Array.from(items).map((item, index) => ({
-                id: parseInt(item.dataset.id),
+        async function handleDrop(e) {
+            if (e.stopPropagation) e.stopPropagation();
+            if (dragSrcEl !== this) {
+                const ul = document.getElementById('staff-list');
+                const items = Array.from(ul.children);
+                const fromIndex = items.indexOf(dragSrcEl);
+                const toIndex = items.indexOf(this);
+
+                if (fromIndex < toIndex) {
+                    this.parentNode.insertBefore(dragSrcEl, this.nextSibling);
+                } else {
+                    this.parentNode.insertBefore(dragSrcEl, this);
+                }
+                await updateOrder();
+            }
+            return false;
+        }
+
+        function handleDragEnd(e) {
+            this.style.opacity = '1';
+        }
+
+        async function updateOrder() {
+            const ul = document.getElementById('staff-list');
+            const items = Array.from(ul.children);
+            const orderData = items.map((item, index) => ({
+                id: item.dataset.id,
                 display_order: index + 1
             }));
-            
-            // UIの↑↓ボタンの有効/無効を再設定
-            Array.from(items).forEach((item, index) => {
-                const btns = item.querySelectorAll('.btn-sort');
-                btns[0].disabled = (index === 0);
-                btns[0].style.opacity = (index === 0) ? '0.3' : '1';
-                btns[1].disabled = (index === items.length - 1);
-                btns[1].style.opacity = (index === items.length - 1) ? '0.3' : '1';
-            });
 
-            // バックエンドに新しい順番を送信
             await fetch('/api/staff/reorder', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -141,6 +146,7 @@
         async function addStaff() {
             const name = document.getElementById('new-name').value;
             const pass = document.getElementById('new-pass').value;
+            const isDouble = document.getElementById('new-is-double').checked;
 
             if (!name || !pass) {
                 alert('名前と従業員番号を入力してください');
@@ -150,12 +156,13 @@
             const res = await fetch('/api/staff', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ name: name, password: pass })
+                body: JSON.stringify({ name: name, password: pass, is_double_shift: isDouble })
             });
 
             if (res.ok) {
                 document.getElementById('new-name').value = '';
                 document.getElementById('new-pass').value = '';
+                document.getElementById('new-is-double').checked = false;
                 loadStaff();
             } else {
                 alert('追加に失敗しました。');
@@ -163,13 +170,11 @@
         }
 
         async function deleteStaff(id, name) {
-            if (!confirm(`本当に「${name}」さんを削除しますか？`)) return;
+            if (!confirm(`本当に「${name}」さんを削除しますか？\n※このスタッフのシフト履歴も消去されます`)) return;
 
             const res = await fetch(`/api/staff/${id}`, { method: 'DELETE' });
             if (res.ok) {
                 loadStaff();
-            } else {
-                alert('削除に失敗しました。');
             }
         }
     </script>

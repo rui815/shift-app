@@ -7,7 +7,6 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///shifts.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# 【追加】店長用のパスワード（ここを好きなパスワードに変更してください）
 ADMIN_PASSWORD = "admin"
 
 # --- データベースモデル ---
@@ -16,11 +15,18 @@ class Staff(db.Model):
     name = db.Column(db.String(80), nullable=False, unique=True)
     password = db.Column(db.String(20), nullable=False, default="0000") 
     display_order = db.Column(db.Integer, default=0)
+    is_double_shift = db.Column(db.Boolean, default=False) # 【追加】昼夜シフト対応フラグ
 
 class ShiftRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
     date = db.Column(db.Date, nullable=False)
+
+class ShiftRequestV2(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    time_of_day = db.Column(db.String(10), nullable=False) 
 
 class ShiftSubmission(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -53,8 +59,6 @@ def staff_manage():
     return render_template('staff_manage.html')
 
 # --- APIエンドポイント ---
-
-# 【新機能】店長ログインAPI
 @app.route('/api/admin/login', methods=['POST'])
 def admin_login():
     data = request.json
@@ -81,7 +85,13 @@ def update_status():
 def add_staff():
     data = request.json
     max_order = db.session.query(db.func.max(Staff.display_order)).scalar() or 0
-    new_staff = Staff(name=data['name'], password=data['password'], display_order=max_order + 1)
+    # フラグを受け取って保存
+    new_staff = Staff(
+        name=data['name'], 
+        password=data['password'], 
+        display_order=max_order + 1,
+        is_double_shift=data.get('is_double_shift', False)
+    )
     db.session.add(new_staff)
     db.session.commit()
     return jsonify({"message": "登録しました"}), 201
@@ -89,7 +99,9 @@ def add_staff():
 @app.route('/api/staff', methods=['GET'])
 def get_staff():
     staff_list = Staff.query.order_by(Staff.display_order).all()
-    return jsonify([{"id": s.id, "name": s.name, "password": s.password} for s in staff_list]), 200
+    return jsonify([{
+        "id": s.id, "name": s.name, "password": s.password, "is_double_shift": s.is_double_shift
+    } for s in staff_list]), 200
 
 @app.route('/api/staff/reorder', methods=['POST'])
 def reorder_staff():
@@ -106,6 +118,7 @@ def delete_staff(staff_id):
     staff = Staff.query.get(staff_id)
     if staff:
         ShiftRequest.query.filter_by(staff_id=staff_id).delete()
+        ShiftRequestV2.query.filter_by(staff_id=staff_id).delete()
         ShiftSubmission.query.filter_by(staff_id=staff_id).delete()
         db.session.delete(staff)
         db.session.commit()
@@ -125,15 +138,24 @@ def get_my_shifts():
     submission = ShiftSubmission.query.filter_by(staff_id=staff_id, target_month=target_month).first()
     
     if submission:
-        requests = ShiftRequest.query.filter(ShiftRequest.staff_id == staff_id, ShiftRequest.date.like(f"{target_month}-%")).all()
-        dates = [r.date.strftime('%Y-%m-%d') for r in requests]
+        requests = ShiftRequestV2.query.filter(ShiftRequestV2.staff_id == staff_id, ShiftRequestV2.date.like(f"{target_month}-%")).all()
+        day_offs = [r.date.strftime('%Y-%m-%d') for r in requests if r.time_of_day == 'day']
+        night_offs = [r.date.strftime('%Y-%m-%d') for r in requests if r.time_of_day == 'night']
         return jsonify({
             "submitted": True,
-            "dates": dates,
-            "memo": submission.memo or ""
+            "day_offs": day_offs,
+            "night_offs": night_offs,
+            "memo": submission.memo or "",
+            "is_double_shift": staff.is_double_shift # マイページに情報を渡す
         }), 200
     else:
-        return jsonify({"submitted": False, "dates": [], "memo": ""}), 200
+        return jsonify({
+            "submitted": False, 
+            "day_offs": [], 
+            "night_offs": [], 
+            "memo": "", 
+            "is_double_shift": staff.is_double_shift
+        }), 200
 
 @app.route('/api/shifts', methods=['POST'])
 def submit_shift():
@@ -144,7 +166,8 @@ def submit_shift():
     data = request.json
     staff_id = data['staff_id']
     password = data.get('password', '')
-    dates = data['dates']
+    day_offs = data.get('day_offs', [])
+    night_offs = data.get('night_offs', [])
     target_month = data['target_month']
     memo = data.get('memo', '')
 
@@ -152,15 +175,20 @@ def submit_shift():
     if not staff or staff.password != password:
         return jsonify({"error": "従業員番号が間違っています。"}), 401
 
-    ShiftRequest.query.filter(ShiftRequest.staff_id == staff_id, ShiftRequest.date.like(f"{target_month}-%")).delete(synchronize_session=False)
+    ShiftRequestV2.query.filter(ShiftRequestV2.staff_id == staff_id, ShiftRequestV2.date.like(f"{target_month}-%")).delete(synchronize_session=False)
     ShiftSubmission.query.filter_by(staff_id=staff_id, target_month=target_month).delete()
 
     submission = ShiftSubmission(staff_id=staff_id, target_month=target_month, memo=memo)
     db.session.add(submission)
 
-    for date_str in dates:
+    for date_str in day_offs:
         date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
-        new_request = ShiftRequest(staff_id=staff_id, date=date_obj)
+        new_request = ShiftRequestV2(staff_id=staff_id, date=date_obj, time_of_day='day')
+        db.session.add(new_request)
+
+    for date_str in night_offs:
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+        new_request = ShiftRequestV2(staff_id=staff_id, date=date_obj, time_of_day='night')
         db.session.add(new_request)
     
     db.session.commit()
@@ -168,7 +196,7 @@ def submit_shift():
 
 @app.route('/api/shifts/<month_str>', methods=['GET'])
 def get_shifts(month_str):
-    shift_list = [{"staff_name": s.staff_name, "date": s.date.strftime('%Y-%m-%d')} for s in db.session.query(ShiftRequest.date, Staff.name.label('staff_name')).join(Staff).filter(ShiftRequest.date.like(f"{month_str}-%")).all()]
+    shift_list = [{"staff_name": s.staff_name, "date": s.date.strftime('%Y-%m-%d'), "time_of_day": s.time_of_day} for s in db.session.query(ShiftRequestV2.date, ShiftRequestV2.time_of_day, Staff.name.label('staff_name')).join(Staff).filter(ShiftRequestV2.date.like(f"{month_str}-%")).all()]
     submissions = ShiftSubmission.query.filter_by(target_month=month_str).all()
     submitted_info = []
     for sub in submissions:

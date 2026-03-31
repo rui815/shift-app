@@ -6,9 +6,7 @@
     <style>
         body { font-family: sans-serif; padding: 20px; color: #333; background-color: #f4f7f6; display: flex; flex-direction: column; align-items: center;}
         
-        /* ログイン画面とメイン画面のコンテナ */
         .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 400px; box-sizing: border-box;}
-        
         h1 { font-size: 22px; text-align: center; margin-bottom: 20px; color: #2c3e50;}
         
         .form-group { margin-bottom: 15px; }
@@ -23,49 +21,48 @@
         .calendar-grid, .weekday-header { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
         .weekday-header div { text-align: center; font-weight: bold; font-size: 14px; padding-bottom: 5px; }
         .sun { color: #e74c3c; } .sat { color: #3498db; }
-        .day-cell { border: 1px solid #ddd; border-radius: 5px; padding: 10px 0; text-align: center; cursor: pointer; background-color: #f9f9f9; user-select: none; font-size: 16px; transition: 0.2s; }
-        .empty-cell { border: none; background-color: transparent; }
-        .day-cell.selected { background-color: #ff6b6b; color: white; font-weight: bold; border-color: #ff6b6b; }
         
+        .day-cell { border: 1px solid #ddd; border-radius: 5px; padding: 5px; text-align: center; cursor: pointer; background-color: #f9f9f9; user-select: none; font-size: 14px; display: flex; flex-direction: column; justify-content: space-between; min-height: 55px; box-sizing: border-box; transition: 0.2s;}
+        .empty-cell { border: none; background-color: transparent; }
+        .date-number { font-weight: bold; margin-bottom: 3px; }
+        
+        /* 昼夜用ボタンスタイル */
+        .shift-toggles { display: flex; gap: 2px; width: 100%; }
+        .shift-toggle { flex: 1; font-size: 10px; padding: 4px 0; border: 1px solid #ccc; border-radius: 3px; background-color: white; color: #777; transition: 0.2s;}
+        .shift-toggle.selected { background-color: #ff6b6b; color: white; border-color: #ff6b6b; font-weight: bold; }
+        
+        /* 従来用（1日単位）スタイル */
+        .selected-full { background-color: #ff6b6b !important; border-color: #ff6b6b !important; color: white !important;}
+
         .disabled-calendar { opacity: 0.5; pointer-events: none; }
         
         .alert-box { padding: 10px; border-radius: 5px; margin-bottom: 15px; font-weight: bold; text-align: center; font-size: 14px;}
         .alert-closed { background-color: #ffebee; color: #c62828; border: 1px solid #f44336; }
         .alert-submitted { background-color: #e3f2fd; color: #1565c0; border: 1px solid #2196f3; }
-        
-        /* 非表示用のクラス */
         .hidden { display: none !important; }
-
-        /* 追加: 祝日名を表示する用のスタイル */
-        .holiday-name { font-size: 10px; color: #e74c3c; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-top: 2px; }
+        .holiday-name { font-size: 9px; color: #e74c3c; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-top: 2px; }
     </style>
 </head>
 <body>
 
     <div id="login-section" class="container">
         <h1>希望休 提出ログイン</h1>
-        
         <div class="form-group">
             <label for="staff-select" class="form-label">あなたの名前:</label>
             <select id="staff-select" class="form-input">
                 <option value="">-- 選択してください --</option>
             </select>
         </div>
-
         <div class="form-group">
             <label for="staff-password" class="form-label">従業員番号:</label>
             <input type="text" id="staff-password" class="form-input" placeholder="従業員番号を入力">
         </div>
-
         <button class="btn" onclick="login()">ログイン</button>
     </div>
 
-
     <div id="main-section" class="container hidden">
         <h1 id="welcome-message">〇〇さんの提出画面</h1>
-        
         <div id="status-alert" class="alert-box hidden"></div>
-
         <div id="calendar-title" class="calendar-title"></div>
         
         <div id="no-shift-container" style="margin-bottom: 15px; background: #e8f5e9; padding: 10px; border-radius: 5px;">
@@ -86,22 +83,20 @@
             <label for="staff-memo" class="form-label">備考：</label>
             <textarea id="staff-memo" class="form-input" rows="3" style="resize: vertical;"></textarea>
         </div>
-
         <button id="submit-btn" class="btn" onclick="submitShifts()">提出する</button>
         <button class="btn btn-logout" onclick="logout()">別のスタッフとしてログイン</button>
     </div>
 
     <script>
-        let selectedDates = []; 
+        let dayOffs = []; 
+        let nightOffs = []; 
         let currentTargetMonthStr = "";
         let isSystemOpen = true;
         let loggedInStaffId = null;
         let loggedInPassword = "";
-        
-        // 追加: 祝日データを保存する変数
+        let isDoubleShiftUser = false; // 昼夜対応スタッフかどうかのフラグ
         let nationalHolidays = {}; 
 
-        // ターゲット月を計算
         const today = new Date();
         let targetYear = today.getFullYear();
         let targetMonth = today.getMonth() + 2;
@@ -109,20 +104,17 @@
         currentTargetMonthStr = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
 
         window.onload = async function() {
-            // 追加: 国の祝日データをAPIから自動取得
             try {
                 const holRes = await fetch('https://holidays-jp.github.io/api/v1/date.json');
                 nationalHolidays = await holRes.json();
             } catch (error) {
-                console.error("祝日データの取得に失敗しました", error);
+                console.error("祝日エラー", error);
             }
 
-            // システムの状態（受付中かどうか）を取得
             const statusRes = await fetch('/api/status');
             const statusData = await statusRes.json();
             isSystemOpen = statusData.is_open;
 
-            // スタッフ一覧を取得してドロップダウンに入れる
             const response = await fetch('/api/staff');
             const staffList = await response.json();
             const select = document.getElementById('staff-select');
@@ -134,7 +126,6 @@
             });
         };
 
-        // ログイン処理
         async function login() {
             const staffId = document.getElementById('staff-select').value;
             const password = document.getElementById('staff-password').value;
@@ -146,7 +137,6 @@
                 return;
             }
 
-            // 提出データを取得するAPIを叩く
             const res = await fetch('/api/staff/my_shifts', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -164,19 +154,17 @@
             }
 
             const data = await res.json();
-            
-            // ログイン成功したら情報を保存して画面を切り替え
             loggedInStaffId = parseInt(staffId);
             loggedInPassword = password;
+            isDoubleShiftUser = data.is_double_shift || false; // フラグを取得
+
             document.getElementById('welcome-message').textContent = `${staffName} さんの希望休`;
-            
             document.getElementById('login-section').classList.add('hidden');
             document.getElementById('main-section').classList.remove('hidden');
 
             setupDashboard(data);
         }
 
-        // ログイン後の画面セットアップ
         function setupDashboard(data) {
             const alertBox = document.getElementById('status-alert');
             const submitBtn = document.getElementById('submit-btn');
@@ -185,35 +173,28 @@
             const noShiftContainer = document.getElementById('no-shift-container');
             const calendarWrapper = document.getElementById('calendar-wrapper');
 
-            // サーバーから取得した提出済みのデータをセット
-            selectedDates = data.dates || [];
+            dayOffs = data.day_offs || [];
+            nightOffs = data.night_offs || [];
             memoEl.value = data.memo || "";
 
-            // もし「提出済み」かつ「日付が0件」なら「希望休なし」チェックを入れる
-            if (data.submitted && selectedDates.length === 0) {
+            if (data.submitted && dayOffs.length === 0 && nightOffs.length === 0) {
                 noShiftCb.checked = true;
             } else {
                 noShiftCb.checked = false;
             }
 
-            // 受付停止中の場合
             if (!isSystemOpen) {
                 alertBox.textContent = "受付期間は終了しました。以下の内容で登録されています。";
                 alertBox.className = "alert-box alert-closed";
                 alertBox.classList.remove('hidden');
-                
-                // 編集不可にする
                 submitBtn.classList.add('hidden');
                 memoEl.disabled = true;
                 noShiftCb.disabled = true;
                 noShiftContainer.style.opacity = "0.6";
                 calendarWrapper.classList.add('disabled-calendar');
-                
             } else {
-                // 受付中の場合
                 submitBtn.classList.remove('hidden');
                 submitBtn.textContent = data.submitted ? "変更を再提出する" : "提出する";
-                
                 if (data.submitted) {
                     alertBox.textContent = "提出済みです。内容を変更する場合は修正して再提出してください。";
                     alertBox.className = "alert-box alert-submitted";
@@ -224,36 +205,51 @@
             }
 
             generateCalendar();
-            toggleCalendar(); // 希望休なしチェックの状態を反映
+            toggleCalendar();
         }
 
         function toggleCalendar() {
             const isChecked = document.getElementById('no-shift-cb').checked;
             const calendarWrapper = document.getElementById('calendar-wrapper');
-            
             if (isChecked) {
                 calendarWrapper.classList.add('disabled-calendar');
-                // 受付中の場合のみ、チェックされたら日付をリセットする
                 if (isSystemOpen) {
-                    selectedDates = [];
-                    document.querySelectorAll('.day-cell').forEach(el => el.classList.remove('selected'));
+                    dayOffs = [];
+                    nightOffs = [];
+                    document.querySelectorAll('.shift-toggle').forEach(el => el.classList.remove('selected'));
+                    document.querySelectorAll('.day-cell').forEach(el => {
+                        el.classList.remove('selected-full');
+                        const dateSpan = el.querySelector('.date-number');
+                        if(dateSpan && el.dataset.origColor) dateSpan.style.color = el.dataset.origColor;
+                    });
                 }
             } else {
-                // 受付中の場合のみ、カレンダーの操作を有効にする
-                if (isSystemOpen) {
-                    calendarWrapper.classList.remove('disabled-calendar');
-                }
+                if (isSystemOpen) calendarWrapper.classList.remove('disabled-calendar');
+            }
+        }
+
+        function toggleShift(dateStr, timeOfDay, element, forceState = null) {
+            let list = timeOfDay === 'day' ? dayOffs : nightOffs;
+            const isCurrentlyOff = list.includes(dateStr);
+            const newState = forceState !== null ? forceState : !isCurrentlyOff;
+            
+            if (newState) {
+                if (!list.includes(dateStr)) list.push(dateStr);
+                element.classList.add('selected');
+            } else {
+                if (timeOfDay === 'day') dayOffs = dayOffs.filter(d => d !== dateStr);
+                else nightOffs = nightOffs.filter(d => d !== dateStr);
+                element.classList.remove('selected');
             }
         }
 
         function generateCalendar() {
             const calendarGrid = document.getElementById('calendar-grid');
-            calendarGrid.innerHTML = ''; // 一度クリア
+            calendarGrid.innerHTML = '';
             document.getElementById('calendar-title').textContent = `${currentTargetMonthStr.replace('-', '年 ')}月`;
 
             const year = parseInt(currentTargetMonthStr.split('-')[0]);
             const month = parseInt(currentTargetMonthStr.split('-')[1]);
-
             const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
             const daysInMonth = new Date(year, month, 0).getDate();
 
@@ -267,50 +263,90 @@
                 const dayDiv = document.createElement('div');
                 dayDiv.className = 'day-cell';
                 
-                // --- 変更箇所：日付フォーマットと祝日判定 ---
                 const monthStr = String(month).padStart(2, '0');
                 const dayStr = String(i).padStart(2, '0');
                 const dateString = `${year}-${monthStr}-${dayStr}`;
-
                 const currentDayOfWeek = (firstDayOfWeek + i - 1) % 7;
                 const isHoliday = nationalHolidays[dateString] !== undefined;
                 
-                // 日付の数字をセット
-                dayDiv.textContent = i;
-
-                // 色分け（日・祝は赤、土は青）
+                let dateColor = '#333';
+                let holSpanHTML = '';
                 if (currentDayOfWeek === 0 || isHoliday) {
-                    dayDiv.style.color = '#e74c3c';
-                    // 祝日の場合は名前も小さく表示
-                    if (isHoliday) {
-                        const holSpan = document.createElement('span');
-                        holSpan.className = 'holiday-name';
-                        holSpan.textContent = nationalHolidays[dateString];
-                        dayDiv.appendChild(holSpan);
-                    }
+                    dateColor = '#e74c3c';
+                    if (isHoliday) holSpanHTML = `<span class="holiday-name">${nationalHolidays[dateString]}</span>`;
                 } else if (currentDayOfWeek === 6) {
-                    dayDiv.style.color = '#3498db';
+                    dateColor = '#3498db';
                 }
-                // ---------------------------------------------
+                dayDiv.dataset.origColor = dateColor; // 元の色を記憶
 
-                // すでに提出済みの日は色を付ける
-                if (selectedDates.includes(dateString)) {
-                    dayDiv.classList.add('selected');
-                }
+                // UIの出し分け
+                if (isDoubleShiftUser) {
+                    // ★ 昼夜スタッフの場合のUI ★
+                    const isDaySelected = dayOffs.includes(dateString) ? 'selected' : '';
+                    const isNightSelected = nightOffs.includes(dateString) ? 'selected' : '';
 
-                // カレンダーのクリックイベント（受付中の場合のみ有効）
-                if (isSystemOpen) {
-                    dayDiv.onclick = () => {
-                        if(document.getElementById('no-shift-cb').checked) return;
-                        
-                        if (selectedDates.includes(dateString)) {
-                            selectedDates = selectedDates.filter(d => d !== dateString);
-                            dayDiv.classList.remove('selected');
-                        } else {
-                            selectedDates.push(dateString);
-                            dayDiv.classList.add('selected');
-                        }
-                    };
+                    dayDiv.innerHTML = `
+                        <div class="date-number" style="color: ${dateColor};">${i}${holSpanHTML}</div>
+                        <div class="shift-toggles">
+                            <div class="shift-toggle ${isDaySelected}" data-time="day">昼休</div>
+                            <div class="shift-toggle ${isNightSelected}" data-time="night">夜休</div>
+                        </div>
+                    `;
+
+                    if (isSystemOpen) {
+                        const toggles = dayDiv.querySelectorAll('.shift-toggle');
+                        toggles[0].onclick = (e) => {
+                            if(document.getElementById('no-shift-cb').checked) return;
+                            e.stopPropagation(); 
+                            toggleShift(dateString, 'day', toggles[0]);
+                        };
+                        toggles[1].onclick = (e) => {
+                            if(document.getElementById('no-shift-cb').checked) return;
+                            e.stopPropagation();
+                            toggleShift(dateString, 'night', toggles[1]);
+                        };
+                        dayDiv.onclick = () => {
+                            if(document.getElementById('no-shift-cb').checked) return;
+                            const isDayOff = dayOffs.includes(dateString);
+                            const isNightOff = nightOffs.includes(dateString);
+                            if (isDayOff && isNightOff) {
+                                toggleShift(dateString, 'day', toggles[0], false);
+                                toggleShift(dateString, 'night', toggles[1], false);
+                            } else {
+                                toggleShift(dateString, 'day', toggles[0], true);
+                                toggleShift(dateString, 'night', toggles[1], true);
+                            }
+                        };
+                    }
+                } else {
+                    // ★ 従来スタッフの場合のUI（1日単位） ★
+                    const isFullOff = dayOffs.includes(dateString) || nightOffs.includes(dateString);
+                    if (isFullOff) dayDiv.classList.add('selected-full');
+                    
+                    dayDiv.innerHTML = `
+                        <div class="date-number" style="color: ${isFullOff ? 'white' : dateColor};">${i}${holSpanHTML}</div>
+                        <div style="flex-grow: 1;"></div>
+                    `;
+
+                    if (isSystemOpen) {
+                        dayDiv.onclick = () => {
+                            if(document.getElementById('no-shift-cb').checked) return;
+                            const currentlyOff = dayOffs.includes(dateString) || nightOffs.includes(dateString);
+                            if (currentlyOff) {
+                                // 休みを解除
+                                dayOffs = dayOffs.filter(d => d !== dateString);
+                                nightOffs = nightOffs.filter(d => d !== dateString);
+                                dayDiv.classList.remove('selected-full');
+                                dayDiv.querySelector('.date-number').style.color = dateColor;
+                            } else {
+                                // 休みを追加（管理画面で綺麗に見せるため、裏側で昼も夜も休みとして登録する）
+                                dayOffs.push(dateString);
+                                nightOffs.push(dateString);
+                                dayDiv.classList.add('selected-full');
+                                dayDiv.querySelector('.date-number').style.color = 'white';
+                            }
+                        };
+                    }
                 }
                 
                 calendarGrid.appendChild(dayDiv);
@@ -321,7 +357,7 @@
             const memo = document.getElementById('staff-memo').value;
             const isNoShift = document.getElementById('no-shift-cb').checked;
             
-            if (!isNoShift && selectedDates.length === 0) {
+            if (!isNoShift && dayOffs.length === 0 && nightOffs.length === 0) {
                 alert('休み希望日を選択するか、「希望休なし」にチェックを入れてください');
                 return;
             }
@@ -329,7 +365,8 @@
             const payload = {
                 staff_id: loggedInStaffId,
                 password: loggedInPassword, 
-                dates: selectedDates,
+                day_offs: dayOffs,
+                night_offs: nightOffs,
                 target_month: currentTargetMonthStr,
                 memo: memo
             };
@@ -342,7 +379,6 @@
 
             if (response.ok) {
                 alert('シフトの提出・更新が完了しました！');
-                // データを再取得して画面を更新
                 login(); 
             } else {
                 const errorData = await response.json();
@@ -353,6 +389,7 @@
         function logout() {
             loggedInStaffId = null;
             loggedInPassword = "";
+            isDoubleShiftUser = false;
             document.getElementById('staff-password').value = "";
             document.getElementById('login-section').classList.remove('hidden');
             document.getElementById('main-section').classList.add('hidden');

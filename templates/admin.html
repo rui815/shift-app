@@ -16,25 +16,23 @@
         .manage-link { background-color: #f39c12; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 14px;}
         .calendar-container { max-width: 900px; margin: 0 auto; background: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         
-        /* 月切り替えボタンのデザイン */
         .month-nav { display: flex; justify-content: center; align-items: center; gap: 15px; margin-bottom: 15px; }
         .month-btn { background-color: #eee; border: 1px solid #ccc; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold; }
         .month-btn:hover { background-color: #ddd; }
         .calendar-title { font-size: 20px; font-weight: bold; margin: 0; min-width: 140px; text-align: center;}
         
+        /* 凡例を昼・夜のツートン対応に変更 */
         .legend { display: flex; justify-content: center; gap: 15px; margin-bottom: 15px; font-size: 12px; font-weight: bold; flex-wrap: wrap;}
         .legend-item { display: flex; align-items: center; gap: 5px; }
         .legend-color { width: 15px; height: 15px; border-radius: 3px; }
         
         .calendar-grid, .weekday-header { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
         .weekday-header div { text-align: center; font-weight: bold; font-size: 12px; padding-bottom: 5px; border-bottom: 2px solid #ddd; margin-bottom: 5px; }
-        .sun { color: #e74c3c; } .sat { color: #3498db; }
+        .sun { color: #e74c3c; } .sat { color: #96d0f7; }
         .day-cell { border: 1px solid #eee; border-radius: 5px; min-height: 80px; padding: 3px; background-color: #fafafa; display: flex; flex-direction: column; gap: 2px; }
         .date-number { font-weight: bold; margin-bottom: 3px; font-size: 12px; text-align: left; padding-left: 2px; }
         .empty-cell { border: none; background-color: transparent; }
         .staff-badge { font-size: 10px; padding: 3px 1px; border-radius: 3px; text-align: center; word-break: break-all; font-weight: bold; line-height: 1.1;}
-        .status-off { background-color: #ff6b6b; color: white; }
-        .status-work { background-color: #3498db; color: white; }
         .status-unsubmitted { background-color: #e0e0e0; color: #777; }
         
         #status-toggle-btn { padding: 10px 15px; font-weight: bold; border-radius: 5px; cursor: pointer; font-size: 14px; width: 100%;}
@@ -70,8 +68,10 @@
             </div>
 
             <div class="legend">
-                <div class="legend-item"><div class="legend-color" style="background-color: #ff6b6b;"></div>希望休</div>
-                <div class="legend-item"><div class="legend-color" style="background-color: #3498db;"></div>出勤可</div>
+                <div class="legend-item"><div class="legend-color" style="background-color: #ff6b6b;"></div>1日休</div>
+                <div class="legend-item"><div class="legend-color" style="background-color: #96d0f7;"></div>1日出勤</div>
+                <div class="legend-item"><div class="legend-color" style="background: linear-gradient(to right, #ff6b6b 50%, #96d0f7 50%);"></div>昼休/夜出</div>
+                <div class="legend-item"><div class="legend-color" style="background: linear-gradient(to right, #96d0f7 50%, #ff6b6b 50%);"></div>昼出/夜休</div>
                 <div class="legend-item"><div class="legend-color" style="background-color: #e0e0e0;"></div>未登録</div>
             </div>
             
@@ -90,23 +90,19 @@
 
     <script>
         let isSubmissionOpen = true; 
-        
-        // ▼ 追加箇所：祝日データを格納する変数 ▼
         let nationalHolidays = {};
         
-        // 現在表示している年と月を管理する変数
         const today = new Date();
         let currentViewYear = today.getFullYear();
         let currentViewMonth = today.getMonth() + 2;
         if (currentViewMonth > 12) { currentViewMonth -= 12; currentViewYear += 1; }
 
-        // ▼ 変更箇所：画面読み込み時に祝日データを取得 ▼
         window.onload = async function() {
             try {
                 const holRes = await fetch('https://holidays-jp.github.io/api/v1/date.json');
                 nationalHolidays = await holRes.json();
             } catch (error) {
-                console.error("祝日データの取得に失敗しました", error);
+                console.error("祝日エラー", error);
             }
 
             if (sessionStorage.getItem('admin_logged_in') === 'true') {
@@ -176,7 +172,6 @@
             }
         }
 
-        // 月を切り替える関数
         function changeMonth(diff) {
             currentViewMonth += diff;
             if (currentViewMonth > 12) {
@@ -186,12 +181,12 @@
                 currentViewMonth = 12;
                 currentViewYear -= 1;
             }
-            generateAdminCalendar(); // カレンダーを再描画
+            generateAdminCalendar(); 
         }
 
         async function generateAdminCalendar() {
             const calendarGrid = document.getElementById('calendar-grid');
-            calendarGrid.innerHTML = ''; // 【重要】描画前に一度カレンダーを空にする
+            calendarGrid.innerHTML = ''; 
             
             document.getElementById('calendar-title').textContent = `${currentViewYear}年 ${currentViewMonth}月`;
 
@@ -223,7 +218,6 @@
                 dateSpan.className = 'date-number';
                 dateSpan.textContent = i;
                 
-                // ▼ 変更箇所：日付文字列の生成と祝日判定をここで実施 ▼
                 const monthStr = String(currentViewMonth).padStart(2, '0');
                 const dayStr = String(i).padStart(2, '0');
                 const dateString = `${currentViewYear}-${monthStr}-${dayStr}`;
@@ -232,27 +226,41 @@
                 const isHoliday = nationalHolidays[dateString] !== undefined;
 
                 if (currentDayOfWeek === 0 || isHoliday) {
-                    dateSpan.style.color = '#e74c3c'; // 日曜・祝日は赤
+                    dateSpan.style.color = '#e74c3c'; 
                 } else if (currentDayOfWeek === 6) {
-                    dateSpan.style.color = '#3498db'; // 土曜は青
+                    dateSpan.style.color = '#3498db'; 
                 }
                 dayDiv.appendChild(dateSpan);
-                // ▲ 変更箇所ここまで ▲
 
                 staffList.forEach(staff => {
                     const badge = document.createElement('div');
                     badge.className = 'staff-badge';
                     badge.textContent = staff.name;
 
-                    const isOff = shiftsData.some(shift => shift.date === dateString && shift.staff_name === staff.name);
+                    // ▼ 変更箇所：昼と夜の休みを別々に判定して色を塗る ▼
+                    const isDayOff = shiftsData.some(shift => shift.date === dateString && shift.staff_name === staff.name && shift.time_of_day === 'day');
+                    const isNightOff = shiftsData.some(shift => shift.date === dateString && shift.staff_name === staff.name && shift.time_of_day === 'night');
 
-                    if (isOff) {
-                        badge.classList.add('status-off');
-                    } else if (submittedStaffNames.has(staff.name)) {
-                        badge.classList.add('status-work');
+                    if (submittedStaffNames.has(staff.name)) {
+                        if (isDayOff && isNightOff) {
+                            badge.style.background = '#ff6b6b';
+                            badge.style.color = 'white';
+                        } else if (!isDayOff && !isNightOff) {
+                            badge.style.background = '#96d0f7';
+                            badge.style.color = 'white';
+                        } else if (isDayOff && !isNightOff) {
+                            // 昼休(赤)・夜出(青) のツートンカラー
+                            badge.style.background = 'linear-gradient(to right, #ff6b6b 50%, #96d0f7 50%)';
+                            badge.style.color = 'white';
+                        } else if (!isDayOff && isNightOff) {
+                            // 昼出(青)・夜休(赤) のツートンカラー
+                            badge.style.background = 'linear-gradient(to right, #96d0f7 50%, #ff6b6b 50%)';
+                            badge.style.color = 'white';
+                        }
                     } else {
                         badge.classList.add('status-unsubmitted');
                     }
+                    // ▲ 変更箇所ここまで ▲
 
                     dayDiv.appendChild(badge);
                 });
