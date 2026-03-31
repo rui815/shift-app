@@ -35,6 +35,9 @@
         
         /* 非表示用のクラス */
         .hidden { display: none !important; }
+
+        /* 追加: 祝日名を表示する用のスタイル */
+        .holiday-name { font-size: 10px; color: #e74c3c; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-top: 2px; }
     </style>
 </head>
 <body>
@@ -94,6 +97,9 @@
         let isSystemOpen = true;
         let loggedInStaffId = null;
         let loggedInPassword = "";
+        
+        // 追加: 祝日データを保存する変数
+        let nationalHolidays = {}; 
 
         // ターゲット月を計算
         const today = new Date();
@@ -103,6 +109,14 @@
         currentTargetMonthStr = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
 
         window.onload = async function() {
+            // 追加: 国の祝日データをAPIから自動取得
+            try {
+                const holRes = await fetch('https://holidays-jp.github.io/api/v1/date.json');
+                nationalHolidays = await holRes.json();
+            } catch (error) {
+                console.error("祝日データの取得に失敗しました", error);
+            }
+
             // システムの状態（受付中かどうか）を取得
             const statusRes = await fetch('/api/status');
             const statusData = await statusRes.json();
@@ -252,15 +266,32 @@
             for (let i = 1; i <= daysInMonth; i++) {
                 const dayDiv = document.createElement('div');
                 dayDiv.className = 'day-cell';
-                dayDiv.textContent = i;
                 
-                const currentDayOfWeek = (firstDayOfWeek + i - 1) % 7;
-                if (currentDayOfWeek === 0) dayDiv.style.color = '#e74c3c';
-                if (currentDayOfWeek === 6) dayDiv.style.color = '#3498db';
-
+                // --- 変更箇所：日付フォーマットと祝日判定 ---
                 const monthStr = String(month).padStart(2, '0');
                 const dayStr = String(i).padStart(2, '0');
                 const dateString = `${year}-${monthStr}-${dayStr}`;
+
+                const currentDayOfWeek = (firstDayOfWeek + i - 1) % 7;
+                const isHoliday = nationalHolidays[dateString] !== undefined;
+                
+                // 日付の数字をセット
+                dayDiv.textContent = i;
+
+                // 色分け（日・祝は赤、土は青）
+                if (currentDayOfWeek === 0 || isHoliday) {
+                    dayDiv.style.color = '#e74c3c';
+                    // 祝日の場合は名前も小さく表示
+                    if (isHoliday) {
+                        const holSpan = document.createElement('span');
+                        holSpan.className = 'holiday-name';
+                        holSpan.textContent = nationalHolidays[dateString];
+                        dayDiv.appendChild(holSpan);
+                    }
+                } else if (currentDayOfWeek === 6) {
+                    dayDiv.style.color = '#3498db';
+                }
+                // ---------------------------------------------
 
                 // すでに提出済みの日は色を付ける
                 if (selectedDates.includes(dateString)) {
