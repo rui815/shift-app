@@ -25,7 +25,16 @@
         .staff-name { font-weight: bold; font-size: 16px;}
         .staff-pass { font-size: 13px; color: #777;}
         
+        /* 編集・削除ボタンを並べるコンテナ */
+        .action-btns { display: flex; gap: 5px; }
+        .btn-edit { background-color: #f39c12; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; font-size: 12px;}
         .btn-delete { background-color: #e74c3c; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; font-size: 12px;}
+
+        /* 編集ポップアップ（モーダル）のスタイル */
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; padding: 25px; border-radius: 10px; width: 90%; max-width: 400px; box-sizing: border-box; box-shadow: 0 4px 15px rgba(0,0,0,0.2);}
+        .modal-content input[type="text"] { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; margin-bottom: 10px;}
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
@@ -47,6 +56,28 @@
             </ul>
 
         <button class="btn btn-back" onclick="location.href='/admin'">カレンダーに戻る</button>
+    </div>
+
+    <div id="edit-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3 style="margin-top: 0;">スタッフ情報の編集</h3>
+            <input type="hidden" id="edit-id">
+            <label style="font-size: 14px; font-weight: bold; color: #555;">スタッフ名</label>
+            <input type="text" id="edit-name" placeholder="スタッフ名">
+            
+            <label style="font-size: 14px; font-weight: bold; color: #555;">従業員番号</label>
+            <input type="text" id="edit-pass" placeholder="従業員番号">
+            
+            <label style="font-size: 14px; display: flex; align-items: center; gap: 5px; font-weight: bold; margin-top: 10px;">
+                <input type="checkbox" id="edit-is-double" style="width: 20px; height: 20px;"> 
+                昼・夜シフト両方に入るスタッフ
+            </label>
+            
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button class="btn" style="flex: 1;" onclick="submitEdit()">保存する</button>
+                <button class="btn" style="flex: 1; background-color: #95a5a6;" onclick="closeEditModal()">キャンセル</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -72,16 +103,19 @@
                 item.draggable = true;
                 item.dataset.id = staff.id;
 
-                // 昼夜対応スタッフには青いタグを表示
                 const doubleTag = staff.is_double_shift ? '<span style="font-size: 10px; background: #3498db; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 5px;">昼夜</span>' : '';
 
+                // ▼ 変更箇所：「編集」ボタンを追加 ▼
                 item.innerHTML = `
                     <div class="drag-handle">☰</div>
                     <div class="staff-info">
                         <div class="staff-name">${staff.name} ${doubleTag}</div>
                         <span class="staff-pass">従業員番号: ${staff.password}</span>
                     </div>
-                    <button class="btn-delete" onclick="deleteStaff(${staff.id}, '${staff.name}')">削除</button>
+                    <div class="action-btns">
+                        <button class="btn-edit" onclick="openEditModal(${staff.id}, '${staff.name}', '${staff.password}', ${staff.is_double_shift})">編集</button>
+                        <button class="btn-delete" onclick="deleteStaff(${staff.id}, '${staff.name}')">削除</button>
+                    </div>
                 `;
 
                 item.addEventListener('dragstart', handleDragStart);
@@ -92,6 +126,47 @@
                 ul.appendChild(item);
             });
         }
+
+        // --- 編集ポップアップの処理 ---
+        function openEditModal(id, name, pass, isDouble) {
+            document.getElementById('edit-id').value = id;
+            document.getElementById('edit-name').value = name;
+            document.getElementById('edit-pass').value = pass;
+            document.getElementById('edit-is-double').checked = isDouble;
+            document.getElementById('edit-modal').classList.remove('hidden');
+        }
+
+        function closeEditModal() {
+            document.getElementById('edit-modal').classList.add('hidden');
+        }
+
+        async function submitEdit() {
+            const id = document.getElementById('edit-id').value;
+            const name = document.getElementById('edit-name').value;
+            const pass = document.getElementById('edit-pass').value;
+            const isDouble = document.getElementById('edit-is-double').checked;
+
+            if (!name || !pass) {
+                alert('名前と従業員番号を入力してください');
+                return;
+            }
+
+            // 新しく作った裏側のPUT APIを呼び出す
+            const res = await fetch(`/api/staff/${id}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ name: name, password: pass, is_double_shift: isDouble })
+            });
+
+            if (res.ok) {
+                closeEditModal(); // 成功したらポップアップを閉じる
+                loadStaff();      // リストを再読み込み
+            } else {
+                const data = await res.json();
+                alert(data.error || '更新に失敗しました。');
+            }
+        }
+        // ------------------------------
 
         // --- ドラッグ＆ドロップ処理 ---
         function handleDragStart(e) {
@@ -165,7 +240,8 @@
                 document.getElementById('new-is-double').checked = false;
                 loadStaff();
             } else {
-                alert('追加に失敗しました。');
+                const data = await res.json();
+                alert(data.error || '追加に失敗しました。');
             }
         }
 

@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, render_template
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+from sqlalchemy import text
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///shifts.db'
@@ -15,7 +16,8 @@ class Staff(db.Model):
     name = db.Column(db.String(80), nullable=False, unique=True)
     password = db.Column(db.String(20), nullable=False, default="0000") 
     display_order = db.Column(db.Integer, default=0)
-    is_double_shift = db.Column(db.Boolean, default=False) # 【追加】昼夜シフト対応フラグ
+    is_double_shift = db.Column(db.Boolean, default=False) 
+    line_id = db.Column(db.String(100), unique=True, nullable=True) # ★追加：LINE連携用のID
 
 class ShiftRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -39,8 +41,15 @@ class SystemSetting(db.Model):
     key = db.Column(db.String(50), unique=True, nullable=False)
     value = db.Column(db.String(50), nullable=False)
 
+# ★既存のデータベースを消さずに、line_idカラムを安全に追加する裏技
 with app.app_context():
     db.create_all()
+    try:
+        db.session.execute(text("ALTER TABLE staff ADD COLUMN line_id VARCHAR(100)"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback() # 既に追加されている場合は無視する
+        
     if not SystemSetting.query.filter_by(key='submission_is_open').first():
         db.session.add(SystemSetting(key='submission_is_open', value='true'))
         db.session.commit()
@@ -59,6 +68,25 @@ def staff_manage():
     return render_template('staff_manage.html')
 
 # --- APIエンドポイント ---
+
+# ★追加：LINE IDを使って一発でログイン状態を判定するAPI
+@app.route('/api/liff_login', methods=['POST'])
+def liff_login():
+    line_id = request.json.get('line_id')
+    if not line_id:
+        return jsonify({"linked": False}), 400
+
+    staff = Staff.query.filter_by(line_id=line_id).first()
+    if staff:
+        return jsonify({
+            "linked": True,
+            "staff_id": staff.id,
+            "password": staff.password,
+            "name": staff.name
+        }), 200
+    else:
+        return jsonify({"linked": False}), 200
+
 @app.route('/api/admin/login', methods=['POST'])
 def admin_login():
     data = request.json
@@ -85,7 +113,6 @@ def update_status():
 def add_staff():
     data = request.json
     max_order = db.session.query(db.func.max(Staff.display_order)).scalar() or 0
-    # フラグを受け取って保存
     new_staff = Staff(
         name=data['name'], 
         password=data['password'], 
@@ -124,16 +151,44 @@ def delete_staff(staff_id):
         db.session.commit()
     return jsonify({"message": "削除しました"}), 200
 
+@app.route('/api/staff/<int:staff_id>', methods=['PUT'])
+def update_staff(staff_id):
+    staff = Staff.query.get(staff_id)
+    if not staff:
+        return jsonify({"error": "スタッフが見つかりません"}), 404
+    
+    data = request.json
+    existing_staff = Staff.query.filter_by(name=data['name']).first()
+    if existing_staff and existing_staff.id != staff_id:
+        return jsonify({"error": "その名前は既に他のスタッフで登録されています"}), 400
+
+    staff.name = data['name']
+    staff.password = data['password']
+    staff.is_double_shift = data.get('is_double_shift', False)
+    
+    db.session.commit()
+    return jsonify({"message": "更新しました"}), 200
+
 @app.route('/api/staff/my_shifts', methods=['POST'])
 def get_my_shifts():
     data = request.json
     staff_id = data.get('staff_id')
     password = data.get('password')
     target_month = data.get('target_month')
+    line_id = data.get('line_id') # ★追加
 
     staff = Staff.query.get(staff_id)
     if not staff or staff.password != password:
         return jsonify({"error": "従業員番号が間違っています。"}), 401
+
+    # ★追加：初回ログイン時にLINE IDを保存してあげる
+    if line_id and not staff.line_id:
+        # 他のスタッフにこのLINEが紐付いていたら解除する（万が一の安全策）
+        old_staff = Staff.query.filter_by(line_id=line_id).first()
+        if old_staff:
+            old_staff.line_id = None
+        staff.line_id = line_id
+        db.session.commit()
 
     submission = ShiftSubmission.query.filter_by(staff_id=staff_id, target_month=target_month).first()
     
@@ -146,7 +201,7 @@ def get_my_shifts():
             "day_offs": day_offs,
             "night_offs": night_offs,
             "memo": submission.memo or "",
-            "is_double_shift": staff.is_double_shift # マイページに情報を渡す
+            "is_double_shift": staff.is_double_shift
         }), 200
     else:
         return jsonify({
