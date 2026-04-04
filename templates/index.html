@@ -31,7 +31,6 @@
         .alert-closed { background-color: #ffebee; color: #c62828; border: 1px solid #f44336; }
         .alert-submitted { background-color: #e3f2fd; color: #1565c0; border: 1px solid #2196f3; }
         .hidden { display: none !important; }
-        /* ★ローディング画面 */
         #loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; }
         .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #4CAF50; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 10px;}
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -86,11 +85,7 @@
     </div>
 
     <script>
-        // ==========================================
-        // 【重要】↓ あなたのLIFF IDに必ず書き換えてください！
         const MY_LIFF_ID = "2009678206-8dFeKNUG"; 
-        // 例: "1234567890-abcdefg" （ダブルクォーテーションで囲むのを忘れずに）
-        // ==========================================
 
         let userLineId = null; 
         
@@ -119,34 +114,39 @@
             const statusData = await statusRes.json();
             isSystemOpen = statusData.is_open;
 
-            // ▼ 追加：LINE LIFFの初期化と自動ログイン判定 ▼
             try {
                 await liff.init({ liffId: MY_LIFF_ID });
-                if (liff.isLoggedIn()) {
-                    const profile = await liff.getProfile();
-                    userLineId = profile.userId;
+                
+                // Safariなど外部ブラウザで開いている場合は、強制的にLINEログイン画面へ飛ばす
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                    return;
+                }
 
-                    // バックエンドにこのLINE IDを知っているか聞きに行く
-                    const autoRes = await fetch('/api/liff_login', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ line_id: userLineId })
-                    });
+                const profile = await liff.getProfile();
+                userLineId = profile.userId;
+
+                const autoRes = await fetch('/api/liff_login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ line_id: userLineId })
+                });
+
+                if (!autoRes.ok) {
+                    alert("サーバーエラーです。app.py が正しく最新版になっているか確認してください。");
+                } else {
                     const autoData = await autoRes.json();
-                    
                     if (autoData.linked) {
-                        // アカウントが紐づいていた場合：自動でログイン処理を走らせる
                         await executeLogin(autoData.staff_id, autoData.password, autoData.name);
                         document.getElementById('loading-overlay').classList.add('hidden');
-                        return; // ここで終了させる
+                        return; 
                     }
                 }
             } catch(e) {
-                console.error("LIFF 初期化エラー:", e);
-                // パソコンからのアクセスなどの場合はそのまま進む
+                alert("【LINE連携エラー】\n" + e.message + "\n\n※LINE Developersの「LIFF」タブ設定で『profile』にチェックが入っていない可能性があります。確認してみてください！");
+                console.error("LIFF エラー:", e);
             }
 
-            // 自動ログインできなかった場合は、通常のリスト取得とログイン画面表示へ
             const response = await fetch('/api/staff');
             const staffList = await response.json();
             const select = document.getElementById('staff-select');
@@ -182,7 +182,7 @@
                     staff_id: parseInt(staffId),
                     password: password,
                     target_month: currentTargetMonthStr,
-                    line_id: userLineId // ★追加：LINEから開いている場合はIDを送る
+                    line_id: userLineId
                 })
             });
 
@@ -378,13 +378,15 @@
             });
 
             if (response.ok) {
-                alert('シフトの提出・更新が完了しました！');
-                if (userLineId) {
-                    // LINE内の場合、提出後に画面を自動で閉じる機能
-                    liff.closeWindow();
-                } else {
-                    window.location.reload(); 
-                }
+                const alertBox = document.getElementById('status-alert');
+                alertBox.textContent = "✅ シフトの提出・更新が完了しました！";
+                alertBox.className = "alert-box alert-submitted";
+                alertBox.classList.remove('hidden');
+
+                // 1.5秒待ってから画面を最新状態に更新する（警告を出さないため、無理に画面は閉じません）
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1500);
             } else {
                 const errorData = await response.json();
                 alert(errorData.error || 'エラーが発生しました');
