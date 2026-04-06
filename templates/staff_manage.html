@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>【管理者】スタッフ管理</title>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    
     <style>
         body { font-family: sans-serif; padding: 15px; background-color: #f4f7f6; color: #333; margin: 0; }
         .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); box-sizing: border-box;}
@@ -17,10 +19,12 @@
         .btn-back { background-color: #95a5a6; width: 100%; margin-top: 20px;}
         
         .staff-list { list-style: none; padding: 0; margin: 0; }
-        .staff-item { display: flex; align-items: center; justify-content: space-between; background: white; padding: 15px; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 8px; cursor: grab;}
-        .staff-item:active { cursor: grabbing; background-color: #f0f0f0;}
+        .staff-item { display: flex; align-items: center; justify-content: space-between; background: white; padding: 15px; border: 1px solid #ddd; border-radius: 5px; margin-bottom: 8px; background-color: white;}
         
-        .drag-handle { color: #aaa; margin-right: 15px; font-size: 20px; user-select: none;}
+        /* ▼ 並び替えの「≡」マーク専用のスタイルに変更 ▼ */
+        .drag-handle { color: #aaa; margin-right: 15px; font-size: 20px; user-select: none; cursor: grab;}
+        .drag-handle:active { cursor: grabbing; color: #333;}
+        
         .staff-info { flex-grow: 1; display: flex; flex-direction: column; gap: 4px;}
         .staff-name { font-weight: bold; font-size: 16px;}
         .staff-pass { font-size: 13px; color: #777;}
@@ -51,7 +55,7 @@
             <button class="btn" onclick="addStaff()">＋ 新規スタッフを追加</button>
         </div>
 
-        <p style="font-size: 12px; color: #777; margin-bottom: 5px;">※ ≡ をドラッグして表示順を並び替えられます</p>
+        <p style="font-size: 12px; color: #777; margin-bottom: 5px;">※ ≡ を上下にドラッグして表示順を並び替えられます</p>
         <ul id="staff-list" class="staff-list">
             </ul>
 
@@ -81,7 +85,8 @@
     </div>
 
     <script>
-        let dragSrcEl = null;
+        // SortableJSのインスタンスを保持する変数
+        let sortableInstance = null;
 
         window.onload = function() {
             if (sessionStorage.getItem('admin_logged_in') !== 'true') {
@@ -100,12 +105,11 @@
             staffList.forEach(staff => {
                 const item = document.createElement('li');
                 item.className = 'staff-item';
-                item.draggable = true;
+                // HTML5の draggable="true" はもう不要なので削除
                 item.dataset.id = staff.id;
 
                 const doubleTag = staff.is_double_shift ? '<span style="font-size: 10px; background: #3498db; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 5px;">昼夜</span>' : '';
 
-                // ▼ 変更箇所：「編集」ボタンを追加 ▼
                 item.innerHTML = `
                     <div class="drag-handle">☰</div>
                     <div class="staff-info">
@@ -118,12 +122,22 @@
                     </div>
                 `;
 
-                item.addEventListener('dragstart', handleDragStart);
-                item.addEventListener('dragover', handleDragOver);
-                item.addEventListener('drop', handleDrop);
-                item.addEventListener('dragend', handleDragEnd);
-
+                // 以前の複雑なイベントリスナーは全て削除
                 ul.appendChild(item);
+            });
+
+            // ▼ スマホ対応のSortableJSをここで起動！ ▼
+            if (sortableInstance) {
+                sortableInstance.destroy(); // リスト再描画時は古い設定をリセット
+            }
+            sortableInstance = new Sortable(ul, {
+                handle: '.drag-handle', // 「≡」マークを触った時だけドラッグ可能にする（ボタン誤爆防止）
+                animation: 150,         // アニメーション速度（ミリ秒）
+                ghostClass: 'sortable-ghost', // ドラッグ中の背景色などを変えたい場合に使うクラス
+                onEnd: function () {
+                    // 指（マウス）を離してドロップが完了したらバックエンドに順番を送信
+                    updateOrder();
+                }
             });
         }
 
@@ -151,7 +165,6 @@
                 return;
             }
 
-            // 新しく作った裏側のPUT APIを呼び出す
             const res = await fetch(`/api/staff/${id}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
@@ -159,50 +172,15 @@
             });
 
             if (res.ok) {
-                closeEditModal(); // 成功したらポップアップを閉じる
-                loadStaff();      // リストを再読み込み
+                closeEditModal(); 
+                loadStaff();      
             } else {
                 const data = await res.json();
                 alert(data.error || '更新に失敗しました。');
             }
         }
-        // ------------------------------
 
-        // --- ドラッグ＆ドロップ処理 ---
-        function handleDragStart(e) {
-            dragSrcEl = this;
-            e.dataTransfer.effectAllowed = 'move';
-            this.style.opacity = '0.4';
-        }
-
-        function handleDragOver(e) {
-            if (e.preventDefault) e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            return false;
-        }
-
-        async function handleDrop(e) {
-            if (e.stopPropagation) e.stopPropagation();
-            if (dragSrcEl !== this) {
-                const ul = document.getElementById('staff-list');
-                const items = Array.from(ul.children);
-                const fromIndex = items.indexOf(dragSrcEl);
-                const toIndex = items.indexOf(this);
-
-                if (fromIndex < toIndex) {
-                    this.parentNode.insertBefore(dragSrcEl, this.nextSibling);
-                } else {
-                    this.parentNode.insertBefore(dragSrcEl, this);
-                }
-                await updateOrder();
-            }
-            return false;
-        }
-
-        function handleDragEnd(e) {
-            this.style.opacity = '1';
-        }
-
+        // --- 順番保存・追加・削除処理 ---
         async function updateOrder() {
             const ul = document.getElementById('staff-list');
             const items = Array.from(ul.children);
